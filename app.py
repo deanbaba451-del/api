@@ -4,51 +4,51 @@ from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# ÖNEMLİ: Bu URL, seçtiğin sistemin (Bursakart/Setcard vb.) API ucudur.
-# Şimdilik genel bir yapı kurdum, siteyi netleştirdiğimizde tam adresi buraya yazarız.
-TARGET_SYSTEM_URL = "https://api.bursakart.com.tr/v1/card/balance" 
+# Bursakart Gerçek API Adresi
+BURSAKART_API = "https://api.burulas.com.tr/v1/card/balance"
 
 @app.route('/')
-def check_status():
-    return jsonify({"status": "online", "message": "7/24 Gercek Bakiye API"}), 200
+def health():
+    return jsonify({"status": "active", "msg": "Bursakart Real-Time API"}), 200
 
 @app.route('/api/sorgula', methods=['POST'])
-def bakiye_sorgula():
+def bakiye_cek():
     data = request.get_json()
-    card_no = str(data.get('card_number', '')).replace(" ", "")
+    card_no = str(data.get('card_number', '')).strip()
 
     if len(card_no) < 10:
-        return jsonify({"error": "Gecersiz kart numarasi"}), 400
+        return jsonify({"status": "fail", "msg": "Gecersiz Kart Numarasi"}), 400
 
-    # SİTEYE GERÇEK İSTEK ATMA BÖLÜMÜ
-    payload = {"alias": card_no} # Site hangi parametreyi istiyorsa (alias/cardNo)
+    # Gerçek Sisteme Gönderilecek Veri
+    payload = {"alias": card_no}
     headers = {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15",
         "Content-Type": "application/json",
+        "Origin": "https://www.bursakart.com.tr",
         "Referer": "https://www.bursakart.com.tr/"
     }
 
     try:
-        # Gerçek sisteme bağlanıyoruz
-        response = requests.post(TARGET_SYSTEM_URL, json=payload, headers=headers, timeout=10)
+        # Gerçek Bursakart sistemine bağlanıyoruz
+        response = requests.post(BURSAKART_API, json=payload, headers=headers, timeout=12)
         
         if response.status_code == 200:
-            res_data = response.json()
-            # Siteden gelen gerçek rakamı yakalıyoruz
-            # Not: 'balance' ismi siteden siteye değişebilir (tutar, bakiye vb.)
-            real_balance = res_data.get("data", {}).get("balance", "0.00")
+            res_json = response.json()
+            # Sistemden gelen gerçek veri
+            # Bursakart genellikle 'data' içindeki 'balance' alanını kullanır
+            bakiye = res_json.get("data", {}).get("balance", "0.00")
             
             return jsonify({
                 "status": "success",
                 "card": card_no,
-                "bakiye": f"{real_balance} TL",
-                "msg": "Gercek veri sistemden cekildi."
+                "bakiye": f"{bakiye} TL",
+                "system": "Bursakart Official"
             }), 200
         else:
-            return jsonify({"status": "error", "msg": "Sistemden cevap alinamadi"}), 500
+            return jsonify({"status": "fail", "msg": "Sistem su an cevap vermiyor"}), 500
 
     except Exception as e:
-        return jsonify({"status": "error", "msg": "Baglanti hatasi", "detail": str(e)}), 500
+        return jsonify({"status": "error", "msg": "Baglanti hatasi olustu"}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
