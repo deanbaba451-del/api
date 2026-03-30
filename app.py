@@ -1,4 +1,4 @@
-import os, threading, requests
+import os, threading, requests, io
 from flask import Flask
 from telebot import TeleBot, types
 
@@ -7,16 +7,17 @@ token = "8694195722:AAH35-tlnnX2GpiHoSrYWCO7KUTe6cfGMxw"
 bot = TeleBot(token)
 
 API_USER = "1773861365"
-API_SECRET = "8694195722:AAH35-tlnnX2GpiHoSrYWCO7KUTe6cfGMxw"
+API_SECRET = "j7Hjr6oa4CLWrPTXZfEUaujCeh4o4p6e"
 
 def check_ai(fid):
     try:
-        finfo = bot.get_file(fid)
-        furl = f"https://api.telegram.org/file/bot{token}/{finfo.file_path}"
-        params = {'url': furl, 'models': 'nudity-2.0,wad,drugs,offensive', 'api_user': API_USER, 'api_secret': API_SECRET}
-        r = requests.get('https://api.sightengine.com/1.0/check.json', params=params).json()
+        f_info = bot.get_file(fid)
+        f_data = bot.download_file(f_info.file_path)
+        files = {'media': ('media', io.BytesIO(f_data))}
+        data = {'models': 'nudity-2.0,wad,drugs,offensive', 'api_user': API_USER, 'api_secret': API_SECRET}
+        r = requests.post('https://api.sightengine.com/1.0/check.json', files=files, data=data).json()
+        
         if r.get('status') == 'success':
-            # TOS İhlali Kontrolü (Çıplaklık, Silah, Uyuşturucu, Şiddet)
             if r.get('nudity', {}).get('sexual_activity', 0) > 0.1 or \
                r.get('weapon', 0) > 0.1 or \
                r.get('drugs', 0) > 0.1 or \
@@ -32,13 +33,12 @@ def kill(m):
     except: pass
 
 @app.route('/')
-def hasretsex_home(): return "hasretsex"
+def hasretsex(): return "hasretsex"
 
 @bot.message_handler(commands=['start'])
 def start(m):
     markup = types.InlineKeyboardMarkup()
-    # Botun kullanıcı adını otomatik alır ve gruba ekleme butonu oluşturur
-    btn = types.InlineKeyboardButton("add me to your group", url=f"https://t.me/{bot.get_me().username}?startgroup=true")
+    btn = types.InlineKeyboardButton("add me to your group", url="https://t.me/komtanim")
     markup.add(btn)
     bot.send_message(m.chat.id, "add me to your group", reply_markup=markup)
 
@@ -59,5 +59,5 @@ def filter_media(m):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    threading.Thread(target=lambda: bot.infinity_polling(timeout=20, long_polling_timeout=20)).start()
+    threading.Thread(target=lambda: bot.infinity_polling()).start()
     app.run(host='0.0.0.0', port=port)
