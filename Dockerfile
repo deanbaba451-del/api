@@ -1,16 +1,16 @@
-FROM python:3.9-slim
+from python:3.9-slim
 
-# Sistem paketlerini güncelle ve yeni OpenCV bağımlılıklarını yükle
-RUN apt-get update && apt-get install -y \
+# sistem paketlerini güncelle ve opencv bağımlılıklarını yükle
+run apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+workdir /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+copy requirements.txt .
+run pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+copy . .
 
-CMD ["python", "app.py"]
+cmd ["python", "app.py"]
