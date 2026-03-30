@@ -1,4 +1,3 @@
-python-telegram-bot
-requests
+pyTelegramBotAPI
 flask
-opencv-python-headless
+requests
