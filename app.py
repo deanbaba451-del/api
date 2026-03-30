@@ -1,99 +1,102 @@
-import os, telebot, io, time, imagehash
-from flask import Flask, request
-from PIL import Image
+import os
+import requests
+from flask import Flask
+from threading import Thread
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# --- BİLGİLERİN ---
-TELEGRAM_TOKEN = "8694195722:AAGpxRjPNCpsdTYustm9n7ij2R3t6U_RoFg"
-OWNER_ID = 6534222591 
+# --- WEB SERVER (Render/Cron Job İçin) ---
+app = Flask('')
 
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
-app = Flask(__name__)
+@app.route('/')
+def home():
+    return "Bot 7/24 Aktif!", 200
 
-forbidden_hashes = {} 
-forbidden_video_ids = set() 
-authorized_users = {OWNER_ID} 
+def run_flask():
+    # Render'ın verdiği portu otomatik yakalar
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
 
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    if message.from_user.id == OWNER_ID:
-        bot.reply_to(message, "Sistem aktif sahip. Emirlerini bekliyorum.")
-    else:
-        bot.reply_to(message, "Beni grubuna ekle ve yetki ver!")
+# --- AYARLAR (Buraya Kendi Bot Tokenini Yaz) ---
+TOKEN = '8694195722:AAGpxRjPNCpsdTYustm9n7ij2R3t6U_RoFg 
+IMAGGA_KEY = 'acc_791d50abf6e9c95'
+IMAGGA_SECRET = '6a39d107520cbde34f67a57f960599d0'
 
-@bot.message_handler(func=lambda m: m.text and m.text.startswith(".auth") and m.chat.type == 'private')
-def auth_user(message):
-    if message.from_user.id == OWNER_ID:
-        try:
-            new_id = int(message.text.split()[1]); authorized_users.add(new_id)
-            bot.reply_to(message, f"✅ {new_id} yetkilendirildi.")
-        except: bot.reply_to(message, "Hata! Örn: .auth 12345")
+# Yasaklı Etiketler
+FORBIDDEN = {'weapon', 'gun', 'drug', 'narcotic', 'pistol', 'syringe', 'nudity', 'sex', 'porn', 'underwear'}
+violations = {}
 
-@bot.message_handler(content_types=['photo', 'video'])
-def handle_media(message):
-    user_id = message.from_user.id
-    is_auth = user_id in authorized_users
-    caption = message.caption or ""
+# --- İÇERİK TARAMA FONKSİYONU ---
+def scan_media(file_url):
     try:
-        if message.content_type == 'video':
-            v_id = message.video.file_id
-            if is_auth and ("/yasakla" in caption or "/bulk" in caption):
-                forbidden_video_ids.add(v_id); bot.reply_to(message, "✅ Video yasaklandı.")
-                return
-            if v_id in forbidden_video_ids:
-                bot.delete_message(message.chat.id, message.message_id)
-                bot.send_message(message.chat.id, "Hasret ananizi siker")
-        elif message.content_type == 'photo':
-            file_id = message.photo[-1].file_id
-            img = Image.open(io.BytesIO(bot.download_file(bot.get_file(file_id).file_path)))
-            current_hash = imagehash.phash(img)
-            if is_auth and ("/yasakla" in caption or "/bulk" in caption):
-                forbidden_hashes[current_hash] = file_id; bot.reply_to(message, "✅ Görsel yasaklandı.")
-                return
-            for f_hash in list(forbidden_hashes.keys()):
-                if current_hash - f_hash < 5:
-                    bot.delete_message(message.chat.id, message.message_id)
-                    bot.send_message(message.chat.id, "Hasret ananizi siker")
-                    break
-    except Exception as e: print(e)
+        response = requests.get(
+            f'https://api.imagga.com/v2/tags?image_url={file_url}',
+            auth=(IMAGGA_KEY, IMAGGA_SECRET), timeout=15
+        )
+        if response.status_code == 200:
+            tags = response.json().get('result', {}).get('tags', [])
+            for tag in tags:
+                if tag['confidence'] > 30 and tag['tag']['en'].lower() in FORBIDDEN:
+                    return True, tag['tag']['en']
+    except:
+        pass
+    return False, None
 
-@bot.message_handler(commands=['imagelist'])
-def send_image_list(message):
-    if message.from_user.id != OWNER_ID: return
-    if not forbidden_hashes: bot.reply_to(message, "Liste boş."); return
-    bot.reply_to(message, "Özelden atıyorum...");
-    for f_hash, f_id in forbidden_hashes.items():
-        bot.send_photo(OWNER_ID, f_id, caption="Yasaklı. Kaldırmak için reply .unban")
-        time.sleep(0.5)
+# --- MEDYA YAKALAYICI (Foto, STC, GIF, Video) ---
+async def handle_all_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message: return
+    
+    user_id = update.effective_user.id
+    target = None
 
-@bot.message_handler(func=lambda m: m.text and m.text.lower() == ".unban")
-def unban_media_handler(message):
-    if message.from_user.id != OWNER_ID or not message.reply_to_message: return
-    rep = message.reply_to_message
-    try:
-        if rep.content_type == 'video':
-            v_id = rep.video.file_id
-            if v_id in forbidden_video_ids: forbidden_video_ids.remove(v_id); bot.reply_to(message, "🔓 Kalktı.")
-        elif rep.content_type == 'photo':
-            img = Image.open(io.BytesIO(bot.download_file(bot.get_file(rep.photo[-1].file_id).file_path)))
-            curr_hash = imagehash.phash(img); found = False
-            for f_hash in list(forbidden_hashes.keys()):
-                if curr_hash - f_hash < 5: del forbidden_hashes[f_hash]; found = True
-            if found: bot.reply_to(message, "🔓 Kalktı.")
-    except Exception as e: print(e)
+    if update.message.photo:
+        target = update.message.photo[-1]
+    elif update.message.sticker:
+        target = update.message.sticker
+    elif update.message.animation: # GIF'ler
+        target = update.message.animation
 
-# --- RENDER AYARLARI ---
-@app.route('/' + TELEGRAM_TOKEN, methods=['POST'])
-def getMessage():
-    bot.process_new_updates([telebot.types.Update.de_json(request.get_data().decode('utf-8'))])
-    return "!", 200
+    if target:
+        file = await context.bot.get_file(target.file_id)
+        # Dosya yolunu oluşturup Imagga'ya yolla
+        is_bad, reason = scan_media(file.file_path)
 
-@app.route("/")
-def webhook():
-    bot.remove_webhook()
-    # Önce environment'a bak, yoksa loglarındaki linki kullan
-    url = os.getenv('RENDER_URL') or "https://api-1ywn.onrender.com"
-    bot.set_webhook(url=f"{url}/{TELEGRAM_TOKEN}")
-    return f"Sistem Hasret Adına Aktif! Link: {url}", 200
+        if is_bad:
+            violations[user_id] = violations.get(user_id, 0) + 1
+            await update.message.delete()
+            await update.message.chat.send_message(
+                f"🚨 **İÇERİK ENGELLENDİ**\n\n"
+                f"👤 Kullanıcı: {update.effective_user.mention_html()}\n"
+                f"🚫 Tespit: {reason.upper()}\n"
+                f"⚠️ İhlal: {violations[user_id]}/5",
+                parse_mode='HTML'
+            )
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+# --- KOMUTLAR (Senin Görsellerindeki Gibi) ---
+async def reset_violations(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    violations.clear()
+    await update.message.reply_text("✅ Tüm ihlal kayıtları sıfırlandı!")
+
+async def block_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.reply_to_message:
+        await update.message.reply_text("⚠️ Bu komutu bir çıkartmaya/medyaya yanıt olarak kullanın!")
+        return
+    await update.message.reply_text("✅ Bu içerik tipi başarıyla engellendi.")
+
+# --- BOTU BAŞLAT ---
+if __name__ == '__main__':
+    # Web server'ı arka planda başlat
+    Thread(target=run_flask).start()
+
+    # Bot uygulamasını kur
+    bot = ApplicationBuilder().token(TOKEN).build()
+    
+    # Komutlar
+    bot.add_handler(CommandHandler("resetviolations", reset_violations))
+    bot.add_handler(CommandHandler("block", block_cmd))
+    
+    # Tüm medyaları dinle
+    bot.add_handler(MessageHandler(filters.PHOTO | filters.Sticker | filters.ANIMATION | filters.VIDEO, handle_all_media))
+    
+    print("Bot yayında! Render portu ve tüm filtreler aktif.")
+    bot.run_polling()
