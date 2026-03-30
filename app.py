@@ -6,7 +6,6 @@ app = Flask(__name__)
 token = "8694195722:AAH35-tlnnX2GpiHoSrYWCO7KUTe6cfGMxw"
 bot = TeleBot(token)
 
-# Sightengine API Bilgileri
 API_USER = "1773861365"
 API_SECRET = "8694195722:AAH35-tlnnX2GpiHoSrYWCO7KUTe6cfGMxw"
 
@@ -15,7 +14,6 @@ def check_ai(url):
     try:
         r = requests.get('https://api.sightengine.com/1.0/check.json', params=params).json()
         if r.get('status') == 'success':
-            # Çıplaklık, Silah veya Uyuşturucu tespiti
             if r.get('nudity', {}).get('sexual_activity', 0) > 0.5 or \
                r.get('weapon', 0) > 0.5 or \
                r.get('drugs', 0) > 0.5:
@@ -30,7 +28,7 @@ def kill(m):
     except: pass
 
 @app.route('/')
-def hasretsex(): return "hasretsex"
+def hasretsex_home(): return "hasretsex"
 
 @bot.message_handler(commands=['start'])
 def start(m):
@@ -49,7 +47,8 @@ def filter_media(m):
         if check_ai(furl): kill(m)
     elif m.sticker:
         bad = ["porn", "sex", "drug", "weed", "weapon", "silah", "+18"]
-        if any(w in (m.sticker.set_name or "").lower() for w in bad): kill(m)
+        txt = f"{m.sticker.set_name} {m.sticker.emoji}".lower()
+        if any(w in txt for w in bad): kill(m)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
