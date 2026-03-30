@@ -16,7 +16,7 @@ def run_flask():
     app.run(host='0.0.0.0', port=port)
 
 # --- AYARLAR ---
-TOKEN = 'BURAYA_BOT_TOKENINI_YAZ' 
+TOKEN = '8694195722:AAHhRsI_LVBbR71L3J6Db4xwfuAij27zCK4' 
 IMAGGA_KEY = 'acc_791d50abf6e9c95'
 IMAGGA_SECRET = '6a39d107520cbde34f67a57f960599d0'
 
