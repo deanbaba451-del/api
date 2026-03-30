@@ -2,6 +2,7 @@ import os, telebot, io, time, imagehash
 from flask import Flask, request
 from PIL import Image
 
+# --- BİLGİLERİN ---
 TELEGRAM_TOKEN = "8694195722:AAGpxRjPNCpsdTYustm9n7ij2R3t6U_RoFg"
 OWNER_ID = 6534222591 
 
@@ -15,7 +16,7 @@ authorized_users = {OWNER_ID}
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     if message.from_user.id == OWNER_ID:
-        bot.reply_to(message, "Sistem aktif sahip.")
+        bot.reply_to(message, "Sistem aktif sahip. Emirlerini bekliyorum.")
     else:
         bot.reply_to(message, "Beni grubuna ekle ve yetki ver!")
 
@@ -80,6 +81,7 @@ def unban_media_handler(message):
             if found: bot.reply_to(message, "🔓 Kalktı.")
     except Exception as e: print(e)
 
+# --- RENDER AYARLARI ---
 @app.route('/' + TELEGRAM_TOKEN, methods=['POST'])
 def getMessage():
     bot.process_new_updates([telebot.types.Update.de_json(request.get_data().decode('utf-8'))])
@@ -88,9 +90,10 @@ def getMessage():
 @app.route("/")
 def webhook():
     bot.remove_webhook()
-    url = os.getenv('RENDER_URL')
-    if url: bot.set_webhook(url=f"{url}/{TELEGRAM_TOKEN}"); return "Aktif!", 200
-    return "Hata!", 400
+    # Önce environment'a bak, yoksa loglarındaki linki kullan
+    url = os.getenv('RENDER_URL') or "https://api-1ywn.onrender.com"
+    bot.set_webhook(url=f"{url}/{TELEGRAM_TOKEN}")
+    return f"Sistem Hasret Adına Aktif! Link: {url}", 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
