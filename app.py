@@ -12,17 +12,19 @@ app = Flask('')
 def home(): return "sightengine guard aktif!", 200
 
 def run_flask():
-    port = int(os.environ.get('PORT', 5000))
+    # render portu otomatik ayarlar, elle müdahale gerekmez
+    port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
 
 # --- ayarlar ---
-token = '8694195722:AAETE-K-v1mDtTmmKAdLeX86iz-B9CA2r74'
+# yeni token buraya eklendi
+token = '8694195722:AAFuzM5OgzZax0iYShFtt091u4MlKijq4RQ'
 sightengine_user = '1773861365'
 sightengine_secret = 'j7Hjr6oa4CLWrPTXZfEUaujCeh4o4p6e'
 
 # --- start komutu ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # reply atmadan düz mesaj yazar
+    # reply atmadan düz ve küçük harf mesaj
     await context.bot.send_message(chat_id=update.effective_chat.id, text="add me to your group")
 
 # --- analiz motoru ---
@@ -38,7 +40,7 @@ def check_content(image_path):
         output = response.json()
         
         if output['status'] == 'success':
-            # %10 ihtimal bile olsa yasaklıysa siler (çok hassas)
+            # hassasiyet 0.1 (%10) - en ufak riskte siler
             nudity = any(output.get('nudity', {}).get(k, 0) > 0.1 for k in ['sexual_activity', 'sexual_display', 'erotica'])
             weapon = output.get('weapon', 0) > 0.1
             drugs = output.get('drugs', 0) > 0.1
@@ -56,7 +58,7 @@ async def guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     file_id = None
 
-    # foto, stc (sticker), gif ve video hepsini yakalar
+    # her türlü medyayı yakalar: foto, sticker, gif, video
     if msg.photo: file_id = msg.photo[-1].file_id
     elif msg.sticker: file_id = msg.sticker.file_id
     elif msg.animation or msg.video: file_id = (msg.animation or msg.video).file_id
@@ -70,7 +72,7 @@ async def guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await file.download_to_drive(local_path)
             
             if check_content(local_path):
-                await msg.delete() # sessizce siler
+                await msg.delete() # sessizce yok eder
             
             if os.path.exists(local_path): os.remove(local_path)
         except:
@@ -81,9 +83,8 @@ if __name__ == '__main__':
     
     bot_app = ApplicationBuilder().token(token).build()
     
-    # komutlar ve filtreler
     bot_app.add_handler(CommandHandler("start", start))
     bot_app.add_handler(MessageHandler(filters.PHOTO | filters.Sticker | filters.ANIMATION | filters.VIDEO | filters.Document.IMAGE, guard))
     
-    # eski webhook'ları temizleyip botu başlatır
+    # botu başlatırken eski güncellemeleri temizler
     bot_app.run_polling(drop_pending_updates=True)
