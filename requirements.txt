@@ -1,5 +1,4 @@
+python-telegram-bot
+requests
 flask
-pyTelegramBotAPI
-Pillow
-ImageHash
-gunicorn
+opencv-python-headless
