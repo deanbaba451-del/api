@@ -1,89 +1,57 @@
-import os
-import requests
-import cv2
+import os, threading, requests
 from flask import Flask
-from threading import Thread
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
+from telebot import TeleBot
 
-# --- web server ---
-app = Flask('')
-@app.route('/')
-def home(): return "sightengine guard aktif!", 200
+app = Flask(__name__)
+token = "8694195722:AAH35-tlnnX2GpiHoSrYWCO7KUTe6cfGMxw"
+bot = TeleBot(token)
 
-def run_flask():
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+# Sightengine API Bilgileri
+API_USER = "1773861365"
+API_SECRET = "8694195722:AAH35-tlnnX2GpiHoSrYWCO7KUTe6cfGMxw"
 
-# --- ayarlar ---
-token = '8694195722:AAFuzM5OgzZax0iYShFtt091u4MlKijq4RQ'
-sightengine_user = '1773861365'
-sightengine_secret = 'j7Hjr6oa4CLWrPTXZfEUaujCeh4o4p6e'
-
-# --- start komutu ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # kucuk harf ve reply atmadan duz mesaj
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="add me to your group")
-
-# --- analiz motoru ---
-def check_content(image_path):
-    params = {
-        'models': 'nudity-2.1,weapon,drugs,gore',
-        'api_user': sightengine_user,
-        'api_secret': sightengine_secret
-    }
+def check_ai(url):
+    params = {'url': url, 'models': 'nudity-2.0,wad,drugs', 'api_user': API_USER, 'api_secret': API_SECRET}
     try:
-        with open(image_path, 'rb') as f:
-            response = requests.post('https://api.sightengine.com/1.0/check.json', files={'media': f}, data=params)
-        output = response.json()
-        
-        if output['status'] == 'success':
-            # %10 (0.1) ihtimal bile olsa siler
-            nudity = any(output.get('nudity', {}).get(k, 0) > 0.1 for k in ['sexual_activity', 'sexual_display', 'erotica'])
-            weapon = output.get('weapon', 0) > 0.1
-            drugs = output.get('drugs', 0) > 0.1
-            gore = output.get('gore', {}).get('prob', 0) > 0.1
-            
-            if nudity or weapon or drugs or gore:
+        r = requests.get('https://api.sightengine.com/1.0/check.json', params=params).json()
+        if r.get('status') == 'success':
+            # Çıplaklık, Silah veya Uyuşturucu tespiti
+            if r.get('nudity', {}).get('sexual_activity', 0) > 0.5 or \
+               r.get('weapon', 0) > 0.5 or \
+               r.get('drugs', 0) > 0.5:
                 return True
-    except Exception as e:
-        print(f"hata: {e}")
+    except: pass
     return False
 
-# --- ana koruma ---
-async def guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message: return
-    msg = update.message
-    file_id = None
+def kill(m):
+    try:
+        bot.delete_message(m.chat.id, m.message_id)
+        print("hasretsex")
+    except: pass
 
-    if msg.photo: file_id = msg.photo[-1].file_id
-    elif msg.sticker: file_id = msg.sticker.file_id
-    elif msg.animation or msg.video: file_id = (msg.animation or msg.video).file_id
-    elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith('image/'):
-        file_id = msg.document.file_id
+@app.route('/')
+def hasretsex(): return "hasretsex"
 
-    if file_id:
-        try:
-            file = await context.bot.get_file(file_id)
-            local_path = f"tmp_{file_id}"
-            await file.download_to_drive(local_path)
-            
-            if check_content(local_path):
-                await msg.delete() # sessizce yok eder
-            
-            if os.path.exists(local_path): os.remove(local_path)
-        except:
-            pass
+@bot.message_handler(commands=['start'])
+def start(m):
+    bot.send_message(m.chat.id, "add me to your group")
 
-if __name__ == '__main__':
-    Thread(target=run_flask).start()
-    
-    bot_app = ApplicationBuilder().token(token).build()
-    
-    bot_app.add_handler(CommandHandler("start", start))
-    
-    # hata veren kisim (filters.ALL) kullanilarak daha saglam hale getirildi
-    bot_app.add_handler(MessageHandler(filters.PHOTO | filters.Sticker.ALL | filters.ANIMATION | filters.VIDEO | filters.Document.IMAGE, guard))
-    
-    # eski bekleyen mesajlari temizleyip botu baslatir
-    bot_app.run_polling(drop_pending_updates=True)
+@bot.message_handler(content_types=['new_chat_members'])
+def added(m):
+    if any(u.id == bot.get_me().id for u in m.new_chat_members):
+        bot.send_message(m.chat.id, "i’m ready to delete inappropriate content.")
+
+@bot.message_handler(content_types=['photo', 'video', 'sticker'])
+def filter_media(m):
+    if m.photo or m.video:
+        fid = m.photo[-1].file_id if m.photo else m.video.file_id
+        furl = f"https://api.telegram.org/file/bot{token}/{bot.get_file(fid).file_path}"
+        if check_ai(furl): kill(m)
+    elif m.sticker:
+        bad = ["porn", "sex", "drug", "weed", "weapon", "silah", "+18"]
+        if any(w in (m.sticker.set_name or "").lower() for w in bad): kill(m)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    threading.Thread(target=lambda: bot.infinity_polling()).start()
+    app.run(host='0.0.0.0', port=port)
