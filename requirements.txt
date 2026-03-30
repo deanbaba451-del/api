@@ -1,6 +1,6 @@
 flask
 pyTelegramBotAPI
+Pillow
+ImageHash
 requests
 gunicorn
-ImageHash
-Pillow
