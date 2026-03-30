@@ -1,102 +1,109 @@
 import os
 import requests
+import cv2
 from flask import Flask
 from threading import Thread
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-# --- WEB SERVER (Render/Cron Job İçin) ---
+# --- WEB SERVER (Render/Cron İçin) ---
 app = Flask('')
-
 @app.route('/')
-def home():
-    return "Bot 7/24 Aktif!", 200
+def home(): return "Sessiz Gardiyan Aktif!", 200
 
 def run_flask():
-    # Render'ın verdiği portu otomatik yakalar
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
 
-# --- AYARLAR (Buraya Kendi Bot Tokenini Yaz) ---
-TOKEN = '8694195722:AAGpxRjPNCpsdTYustm9n7ij2R3t6U_RoFg 
+# --- AYARLAR ---
+TOKEN = 'BURAYA_BOT_TOKENINI_YAZ' 
 IMAGGA_KEY = 'acc_791d50abf6e9c95'
 IMAGGA_SECRET = '6a39d107520cbde34f67a57f960599d0'
 
-# Yasaklı Etiketler
-FORBIDDEN = {'weapon', 'gun', 'drug', 'narcotic', 'pistol', 'syringe', 'nudity', 'sex', 'porn', 'underwear'}
-violations = {}
+# Yasaklı Listesi
+FORBIDDEN = {'weapon', 'gun', 'drug', 'narcotic', 'pistol', 'syringe', 'nudity', 'sex', 'porn', 'blood'}
 
-# --- İÇERİK TARAMA FONKSİYONU ---
-def scan_media(file_url):
+# --- İÇERİK ANALİZ MOTORU ---
+def check_image(image_file):
     try:
-        response = requests.get(
-            f'https://api.imagga.com/v2/tags?image_url={file_url}',
-            auth=(IMAGGA_KEY, IMAGGA_SECRET), timeout=15
+        response = requests.post(
+            'https://api.imagga.com/v2/tags',
+            auth=(IMAGGA_KEY, IMAGGA_SECRET),
+            files={'image': open(image_file, 'rb')},
+            timeout=15
         )
         if response.status_code == 200:
             tags = response.json().get('result', {}).get('tags', [])
             for tag in tags:
-                if tag['confidence'] > 30 and tag['tag']['en'].lower() in FORBIDDEN:
-                    return True, tag['tag']['en']
+                if tag['confidence'] > 35 and tag['tag']['en'].lower() in FORBIDDEN:
+                    return True
     except:
         pass
-    return False, None
+    return False
 
-# --- MEDYA YAKALAYICI (Foto, STC, GIF, Video) ---
-async def handle_all_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- VİDEO DERİN TARAMA ---
+async def scan_video(video_path):
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = frame_count / (fps if fps > 0 else 25)
+
+    # Baş, orta, son kareleri kontrol et
+    points = [1, duration / 2, duration - 1] if duration > 3 else [1]
+    
+    for p in points:
+        cap.set(cv2.CAP_PROP_POS_MSEC, p * 1000)
+        success, frame = cap.read()
+        if success:
+            tmp_frame = f"f_{p}.jpg"
+            cv2.imwrite(tmp_frame, frame)
+            bad = check_image(tmp_frame)
+            os.remove(tmp_frame)
+            if bad:
+                cap.release()
+                return True
+    cap.release()
+    return False
+
+# --- ANA SESSİZ YÖNETİCİ ---
+async def silent_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     
-    user_id = update.effective_user.id
-    target = None
+    msg = update.message
+    file_id = None
+    is_video = False
 
-    if update.message.photo:
-        target = update.message.photo[-1]
-    elif update.message.sticker:
-        target = update.message.sticker
-    elif update.message.animation: # GIF'ler
-        target = update.message.animation
+    if msg.photo:
+        file_id = msg.photo[-1].file_id
+    elif msg.sticker:
+        file_id = msg.sticker.file_id
+    elif msg.animation or msg.video:
+        file_id = (msg.animation or msg.video).file_id
+        is_video = True
 
-    if target:
-        file = await context.bot.get_file(target.file_id)
-        # Dosya yolunu oluşturup Imagga'ya yolla
-        is_bad, reason = scan_media(file.file_path)
+    if file_id:
+        file = await context.bot.get_file(file_id)
+        local_path = f"tmp_{file_id}"
+        await file.download_to_drive(local_path)
 
-        if is_bad:
-            violations[user_id] = violations.get(user_id, 0) + 1
-            await update.message.delete()
-            await update.message.chat.send_message(
-                f"🚨 **İÇERİK ENGELLENDİ**\n\n"
-                f"👤 Kullanıcı: {update.effective_user.mention_html()}\n"
-                f"🚫 Tespit: {reason.upper()}\n"
-                f"⚠️ İhlal: {violations[user_id]}/5",
-                parse_mode='HTML'
-            )
+        # Analiz Et
+        bad = await scan_video(local_path) if is_video else check_image(local_path)
+        
+        os.remove(local_path)
 
-# --- KOMUTLAR (Senin Görsellerindeki Gibi) ---
-async def reset_violations(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    violations.clear()
-    await update.message.reply_text("✅ Tüm ihlal kayıtları sıfırlandı!")
+        # Yasaklıysa Sessizce Sil
+        if bad:
+            try:
+                await msg.delete()
+            except:
+                pass # Yetki hatası vb. olursa bot çökmesin
 
-async def block_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.reply_to_message:
-        await update.message.reply_text("⚠️ Bu komutu bir çıkartmaya/medyaya yanıt olarak kullanın!")
-        return
-    await update.message.reply_text("✅ Bu içerik tipi başarıyla engellendi.")
-
-# --- BOTU BAŞLAT ---
 if __name__ == '__main__':
-    # Web server'ı arka planda başlat
     Thread(target=run_flask).start()
-
-    # Bot uygulamasını kur
-    bot = ApplicationBuilder().token(TOKEN).build()
+    bot_app = ApplicationBuilder().token(TOKEN).build()
     
-    # Komutlar
-    bot.add_handler(CommandHandler("resetviolations", reset_violations))
-    bot.add_handler(CommandHandler("block", block_cmd))
+    # Tüm medyaları dinle, hiçbir komut veya yazı yazma
+    bot_app.add_handler(MessageHandler(filters.PHOTO | filters.Sticker | filters.ANIMATION | filters.VIDEO, silent_guard))
     
-    # Tüm medyaları dinle
-    bot.add_handler(MessageHandler(filters.PHOTO | filters.Sticker | filters.ANIMATION | filters.VIDEO, handle_all_media))
-    
-    print("Bot yayında! Render portu ve tüm filtreler aktif.")
-    bot.run_polling()
+    print("Sessiz İmha Modu Aktif. Bot hiçbir mesaj atmayacak.")
+    bot_app.run_polling()
