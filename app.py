@@ -6,7 +6,7 @@ from threading import Thread
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
-# --- WEB SERVER (Render/Cron İçin) ---
+# --- WEB SERVER ---
 app = Flask('')
 @app.route('/')
 def home(): return "Sessiz Gardiyan Aktif!", 200
@@ -20,10 +20,8 @@ TOKEN = '8694195722:AAHhRsI_LVBbR71L3J6Db4xwfuAij27zCK4'
 IMAGGA_KEY = 'acc_791d50abf6e9c95'
 IMAGGA_SECRET = '6a39d107520cbde34f67a57f960599d0'
 
-# Yasaklı Listesi
 FORBIDDEN = {'weapon', 'gun', 'drug', 'narcotic', 'pistol', 'syringe', 'nudity', 'sex', 'porn', 'blood'}
 
-# --- İÇERİK ANALİZ MOTORU ---
 def check_image(image_file):
     try:
         response = requests.post(
@@ -41,14 +39,11 @@ def check_image(image_file):
         pass
     return False
 
-# --- VİDEO DERİN TARAMA ---
 async def scan_video(video_path):
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     duration = frame_count / (fps if fps > 0 else 25)
-
-    # Baş, orta, son kareleri kontrol et
     points = [1, duration / 2, duration - 1] if duration > 3 else [1]
     
     for p in points:
@@ -65,10 +60,8 @@ async def scan_video(video_path):
     cap.release()
     return False
 
-# --- ANA SESSİZ YÖNETİCİ ---
 async def silent_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
-    
     msg = update.message
     file_id = None
     is_video = False
@@ -85,25 +78,16 @@ async def silent_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file = await context.bot.get_file(file_id)
         local_path = f"tmp_{file_id}"
         await file.download_to_drive(local_path)
-
-        # Analiz Et
         bad = await scan_video(local_path) if is_video else check_image(local_path)
-        
         os.remove(local_path)
-
-        # Yasaklıysa Sessizce Sil
         if bad:
             try:
                 await msg.delete()
             except:
-                pass # Yetki hatası vb. olursa bot çökmesin
+                pass
 
 if __name__ == '__main__':
     Thread(target=run_flask).start()
     bot_app = ApplicationBuilder().token(TOKEN).build()
-    
-    # Tüm medyaları dinle, hiçbir komut veya yazı yazma
     bot_app.add_handler(MessageHandler(filters.PHOTO | filters.Sticker | filters.ANIMATION | filters.VIDEO, silent_guard))
-    
-    print("Sessiz İmha Modu Aktif. Bot hiçbir mesaj atmayacak.")
     bot_app.run_polling()
