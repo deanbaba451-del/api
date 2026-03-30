@@ -4,7 +4,7 @@ import requests
 import threading
 from flask import Flask
 
-app = Flask(name)
+app = Flask(__name__)
 token = "8694195722:AAGUj44Ga6rgZrl9hUiw5TUh7HDfV2j6PgE"
 bot = telebot.TeleBot(token)
 sightengine_user = "1773861365"
