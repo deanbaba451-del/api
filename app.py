@@ -12,19 +12,17 @@ app = Flask('')
 def home(): return "sightengine guard aktif!", 200
 
 def run_flask():
-    # render portu otomatik ayarlar, elle müdahale gerekmez
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
 
 # --- ayarlar ---
-# yeni token buraya eklendi
 token = '8694195722:AAFuzM5OgzZax0iYShFtt091u4MlKijq4RQ'
 sightengine_user = '1773861365'
 sightengine_secret = 'j7Hjr6oa4CLWrPTXZfEUaujCeh4o4p6e'
 
 # --- start komutu ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # reply atmadan düz ve küçük harf mesaj
+    # kucuk harf ve reply atmadan duz mesaj
     await context.bot.send_message(chat_id=update.effective_chat.id, text="add me to your group")
 
 # --- analiz motoru ---
@@ -40,7 +38,7 @@ def check_content(image_path):
         output = response.json()
         
         if output['status'] == 'success':
-            # hassasiyet 0.1 (%10) - en ufak riskte siler
+            # %10 (0.1) ihtimal bile olsa siler
             nudity = any(output.get('nudity', {}).get(k, 0) > 0.1 for k in ['sexual_activity', 'sexual_display', 'erotica'])
             weapon = output.get('weapon', 0) > 0.1
             drugs = output.get('drugs', 0) > 0.1
@@ -58,7 +56,6 @@ async def guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     file_id = None
 
-    # her türlü medyayı yakalar: foto, sticker, gif, video
     if msg.photo: file_id = msg.photo[-1].file_id
     elif msg.sticker: file_id = msg.sticker.file_id
     elif msg.animation or msg.video: file_id = (msg.animation or msg.video).file_id
@@ -84,7 +81,9 @@ if __name__ == '__main__':
     bot_app = ApplicationBuilder().token(token).build()
     
     bot_app.add_handler(CommandHandler("start", start))
-    bot_app.add_handler(MessageHandler(filters.PHOTO | filters.Sticker | filters.ANIMATION | filters.VIDEO | filters.Document.IMAGE, guard))
     
-    # botu başlatırken eski güncellemeleri temizler
+    # hata veren kisim (filters.ALL) kullanilarak daha saglam hale getirildi
+    bot_app.add_handler(MessageHandler(filters.PHOTO | filters.Sticker.ALL | filters.ANIMATION | filters.VIDEO | filters.Document.IMAGE, guard))
+    
+    # eski bekleyen mesajlari temizleyip botu baslatir
     bot_app.run_polling(drop_pending_updates=True)
