@@ -1,3 +1,6 @@
 flask
-gunicorn
+pyTelegramBotAPI
 requests
+gunicorn
+ImageHash
+Pillow
