@@ -1,7 +1,13 @@
-FROM python:3.10-slim
+FROM python:3.9-slim
+
+# Çalışma dizinini ayarla
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Dosyaları kopyala
 COPY . .
-# Burada bot.py yerine app.py yazıyoruz:
-CMD gunicorn --bind 0.0.0.0:$PORT app:app & python3 app.py
+
+# Gerekli kütüphaneleri kur
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Botu başlat
+CMD ["python", "kudur.py"]
