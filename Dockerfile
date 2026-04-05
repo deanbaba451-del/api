@@ -1,13 +1,16 @@
-FROM python:3.9-slim
+FROM python:3.10-slim
 
-# Çalışma dizinini ayarla
+# install ffmpeg
+RUN apt-get update && apt-get install -y ffmpeg && apt-get clean
+
 WORKDIR /app
 
-# Dosyaları kopyala
-COPY . .
-
-# Gerekli kütüphaneleri kur
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Botu başlat
-CMD ["python", "kudur.py"]
+COPY . .
+
+# render port
+EXPOSE 8080
+
+CMD ["python", "app.py"]
